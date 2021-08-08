@@ -21,13 +21,13 @@ call_py = PyTgCalls(
 if __name__ == '__main__':
     @app.on_message(filters.regex('!play'))
     async def play_handler(client: Client, message: Message):
-        file = 'input.raw'
+        file = 'some_file.raw'
         while not os.path.exists(file):
             await asyncio.sleep(0.125)
         call_py.join_group_call(
             message.chat.id,
             file,
-            stream_type=StreamType().local_stream,
+            stream_type=StreamType["LOCAL"],
         )
 
     @app.on_message(filters.regex('!change_stream'))
