@@ -31,22 +31,6 @@ class HttpBridge:
         self.handlers : Dict[str, List[Callable]] = {}
         self.app.router.add_post("*", functools.partial(base_route, self))
 
-        # self.app.add_routes([
-        #     web.post('/request_join_call', self.pytgcalls._join_voice_call),
-        #     web.post('/request_leave_call', self.pytgcalls._leave_voice_call),
-        #     web.post('/get_participants', self.pytgcalls._get_participants),
-        #     web.post('/ended_stream', self.pytgcalls._event_finish),
-        #     web.post('/update_request', self.pytgcalls._update_call_data),
-        #     web.post('/api_internal', self.pytgcalls._api_backend),
-        #     web.post('/request_change_volume', self.pytgcalls._change_volume_voice_call),
-        #     web.post('/async_request', self.pytgcalls._async_result),
-        # ])
-        # if len(self.pytgcalls._on_event_update['CUSTOM_API_HANDLER']) > 0:
-        #     self.pytgcalls._app_core.router.add_post(
-        #         '/api', self.pytgcalls._custom_api_update,
-        #     )
-        # noinspection PyTypeChecker
-
     @property
     def running(self):
         return self.runner is not None
@@ -59,11 +43,18 @@ class HttpBridge:
             return func
         return decorator
 
-    async def post(self, url:str, data:dict) -> bool:
-        with ClientSession() as sess:
-            with sess.post(url, data=json.dumps(data).encode('utf-8')) as res:
-                pass
+    def rm(self, event:str) -> Callable:
+        def decorator(func):
+            if event in self.handlers:
+                if func in self.handlers[event]:
+                    self.handlers[event].remove(func)
+            return func
+        return decorator
 
+    async def post(self, url:str, data:dict) -> bool:
+        async with ClientSession() as sess:
+            async with sess.post(url, data=json.dumps(data).encode('utf-8')) as res:
+                return await res.json()
 
     async def start(self, host:str = 'localhost', port:int = 6969) -> bool:
         if self.running:

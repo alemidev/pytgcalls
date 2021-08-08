@@ -13,6 +13,8 @@ from .base_session import BaseSession
 from .has_cache import CacheHolder
 from .call_holder import CallHolder
 
+from ..http_bridge import INSTANCE as bridge
+
 def check_session_id(fun):
     @functools.wraps(fun)
     async def wrapper(ctx:BaseSession, session_id:str, *args, **kwargs):
@@ -22,6 +24,34 @@ def check_session_id(fun):
     return wrapper
 
 class CallbacksHolder(CacheHolder, CallHolder):
+    # TODO don't repeat
+    def register_callbacks(self):
+        for event, cb in (
+                ('request_change_volume', self._change_volume_voice_call),
+                ('ended_stream', self._event_finish),
+                ('get_participants', self._get_partecipants),
+                ('update_request', self._update_call_data),
+                # ('api_internal', self._api_backend),
+                # ('api', self._custom_api_update),
+                ('request_leave_call', self._leave_voice_call),
+                ('request_join_call', self._join_voice_call),
+        ):
+            bridge.on(event)(cb)
+
+    # TODO don't repeat
+    def remove_callbacks(self):
+        for event, cb in (
+                ('request_change_volume', self._change_volume_voice_call),
+                ('ended_stream', self._event_finish),
+                ('get_participants', self._get_partecipants),
+                ('update_request', self._update_call_data),
+                # ('api_internal', self._api_backend),
+                # ('api', self._custom_api_update),
+                ('request_leave_call', self._leave_voice_call),
+                ('request_join_call', self._join_voice_call),
+        ):
+            bridge.rm(event)(cb)
+
     @check_session_id
     async def _change_volume_voice_call(self, chat_id:int, volume:int) -> dict:
         chat_call = await self.fetch_call(chat_id)
@@ -48,7 +78,7 @@ class CallbacksHolder(CacheHolder, CallHolder):
         return {'result':'OK'}
 
     @check_session_id
-    async def _get_participants(self, chat_id:int) -> List[dict]:
+    async def _get_partecipants(self, chat_id:int) -> List[dict]:
         participants: GroupParticipants = await self.client.send(
             GetGroupParticipants(
                 call=await self.fetch_call(chat_id),
