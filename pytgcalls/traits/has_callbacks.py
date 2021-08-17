@@ -11,59 +11,42 @@ from pyrogram.raw.functions.phone import (
 
 from .base_session import BaseSession
 from .has_cache import CacheHolder
-from .call_holder import CallHolder
-
-from ..http_bridge import INSTANCE as bridge
 
 def check_session_id(fun):
     @functools.wraps(fun)
-    async def wrapper(ctx:BaseSession, session_id:str, *args, **kwargs):
-        if session_id == ctx.sid:
+    async def wrapper(ctx:BaseSession, *args, **kwargs):
+        if 'session_id' not in kwargs:
+            raise Exception("Received event without 'session_id'")
+        if kwargs['session_id'] == ctx.sid:
             return await fun(*args, **kwargs)
         return None
     return wrapper
 
-class CallbacksHolder(CacheHolder, CallHolder):
-    # TODO don't repeat
-    def register_callbacks(self):
-        for event, cb in (
-                ('request_change_volume', self._change_volume_voice_call),
-                ('ended_stream', self._event_finish),
-                ('get_participants', self._get_partecipants),
-                ('update_request', self._update_call_data),
-                # ('api_internal', self._api_backend),
-                # ('api', self._custom_api_update),
-                ('request_leave_call', self._leave_voice_call),
-                ('request_join_call', self._join_voice_call),
-        ):
+class CallbacksHolder(CacheHolder):
+    def __init__(self):
+        self.callbacks = (
+            ('request_change_volume', self._change_volume_voice_call),
+            ('ended_stream', self._event_finish),
+            ('get_participants', self._get_partecipants),
+            ('update_request', self._update_call_data),
+            # ('api_internal', self._api_backend),
+            # ('api', self._custom_api_update),
+            ('request_leave_call', self._leave_voice_call),
+            ('request_join_call', self._join_voice_call),
+        )
+        for event, cb in self.callbacks:
             bridge.on(event)(cb)
 
-    # TODO don't repeat
-    def remove_callbacks(self):
-        for event, cb in (
-                ('request_change_volume', self._change_volume_voice_call),
-                ('ended_stream', self._event_finish),
-                ('get_participants', self._get_partecipants),
-                ('update_request', self._update_call_data),
-                # ('api_internal', self._api_backend),
-                # ('api', self._custom_api_update),
-                ('request_leave_call', self._leave_voice_call),
-                ('request_join_call', self._join_voice_call),
-        ):
+    def __del__(self):
+        for event, cb in self.callbacks:
             bridge.rm(event)(cb)
+        super().__del__()
 
-    @check_session_id
-    async def _change_volume_voice_call(self, chat_id:int, volume:int) -> dict:
-        chat_call = await self.fetch_call(chat_id)
-        await self.client.send(
-            EditGroupCallParticipant(
-                call=chat_call,
-                participant=self.peer_cache.get(chat_id),
-                muted=False,
-                volume=volume * 100,
-            ),
-        )
-        return {'result':'OK'}
+    def on_stream_end(self):
+        def decorator(fun):
+            bridge.on('ended_stream')(fun)
+            return fun
+        return decorator
 
     @check_session_id
     async def _event_finish(self, chat_id:int) -> dict:
@@ -136,59 +119,3 @@ class CallbacksHolder(CacheHolder, CallHolder):
     #     # handler = self.pytgcalls._on_event_update['CUSTOM_API_HANDLER'][0]
     #     # return await handler['callable'](**kwargs)
     #     return {}
-
-    @check_session_id
-    async def _leave_voice_call(self, chat_id:int) -> dict:
-        chat_call = await self.fetch_call(chat_id)
-        if chat_call:
-            await self.client.send(
-                LeaveGroupCall(
-                    call=chat_call,
-                    source=0,
-                ),
-            )
-        return {'result':'OK' if chat_call else 'FAIL'}
-
-    @check_session_id
-    async def _join_voice_call(self,
-            chat_id:int,
-            urfrag:str,
-            pwd:str,
-            hash:str,
-            setup:str,
-            fingerprint:str,
-            source:str,
-            invite_hash:str = "",
-    ) -> dict:
-        request_call = {
-            'ufrag': urfrag,
-            'pwd': pwd,
-            'fingerprints': [{
-                'hash': hash,
-                'setup': setup,
-                'fingerprint': fingerprint,
-            }],
-            'ssrc': source,
-        }
-        chat_call = await self.fetch_call(chat_id)
-        result: Updates = await self.client.send(
-            JoinGroupCall(
-                call=chat_call,
-                params=DataJSON(data=json.dumps(request_call)),
-                muted=False,
-                join_as=self.pytgcalls.peer_cache.get(chat_id),
-                invite_hash=invite_hash,
-            ),
-        )
-
-        # TODO jank! do this in a proper raw_updates_handler
-        transport = json.loads(result.updates[0].call.params.data)['transport']
-
-        return {
-            'transport': {
-                'ufrag': transport['ufrag'],
-                'pwd': transport['pwd'],
-                'fingerprints': transport['fingerprints'],
-                'candidates': transport['candidates'],
-            },
-        }
