@@ -1,59 +1,63 @@
-import logging
+"""This file just provides backward compatibility for the old, synchronous way of using this library"""
 import asyncio
 
-from time import time
-from typing import Callable
-from typing import Dict
-from typing import List
+from typing import Awaitable, Optional, Dict
 
 import pyrogram
+from pyrogram.raw.base import InputPeer
 
-from .js_core import INSTANCE as jscore
+from .js_core import INSTANCE as JSC
 from .helpers import assert_version, event_handler
-
-from .traits import Scaffolding
+from .groupcall import GroupCall
 
 class MissingClientException(Exception):
     pass
 
-class PyTgCalls(Scaffolding):
+class PyTgCalls:
     def __init__(
         self,
         client: pyrogram.Client,
-        port: int = 24859,
-        log_mode: int = 0,
-        flood_wait_cache: int = 120,
     ):
-        super().__init__()
-        # TODO load these settings from config maybe?
-        self.host : str = '127.0.0.1'
-        self.port : int = port
-        self._flood_wait_cache = flood_wait_cache
-        self.log_mode : int = log_mode
-        asyncio.get_event_loop().create_task(self.set_client(client)) # wish I had async constructors...
+        self.client : pyrogram.Client = client
+        self.calls : Dict[int, GroupCall] = {}
 
-    async def run(self, before_start_callable: Callable = None):
+    def _run_bg(self, task:Awaitable, *args, **kwargs) -> asyncio.Task:
+        return asyncio.get_event_loop().create_task(task(*args, **kwargs))
+
+    def run(self, start_pyro=True):
         if not self.client:
             raise MissingClientException("Pyrogram client not configured")
         
         assert_version('node', '15')
         assert_version('pyrogram', '1.2', pyrogram.__version__)
 
-        self.client.on_raw_update()(event_handler(self))
+        if start_pyro:
+            self.client.run()
 
-        if before_start_callable is not None:
-            try: # WTF is this
-                result = before_start_callable(self.me.id)
-                if isinstance(result, bool) and not result:
-                    return
-            except Exception:
-                logging.exception("Exception in before_start callback")
-                    
+    def set_volume(self, chat_id:int, vol:int) -> None:
+        self._run_bg(self.calls[chat_id].set_volume(vol))
+    
+    def pause_stream(self, chat_id:int) -> None:
+        self._run_bg(self.calls[chat_id].pause_stream())
 
-        jscore.start(port=self.port, log_mode=self.log_mode)
-        await bridge.start(self.host, self.port)
+    def resume_stream(self, chat_id:int) -> None:
+        self._run_bg(self.calls[chat_id].resume_stream())
 
-        return self
+    def change_stream(self, chat_id:int, file_path: str):
+        self._run_bg(self.calls[chat_id].change_stream(file_path))
 
-    def _add_handler(self, type_event: str, func):
-        self._on_event_update[type_event].append(func)
+    def leave_group_call(self, chat_id:int, reason:str = 'committed sudoku'):
+        t = self._run_bg(self.calls[chat_id].leave_group_call(reason))
+        t.add_done_callback(lambda _: self._run_bg(JSC.clear(self.calls[chat_id].sid))) # EWWW!
+        self.calls.pop(chat_id)
+
+    def join_group_call(
+            self,
+            chat_id: int,
+            file_path: str,
+            bitrate: int = 48000,
+            invite_hash: Optional[str] = None,
+            join_as: Optional[InputPeer] = None,
+    ) -> None:
+        self.calls[chat_id] = GroupCall(self.client, chat_id)
+        self._run_bg(self.calls[chat_id].join_group_call(file_path, bitrate, invite_hash, join_as))
