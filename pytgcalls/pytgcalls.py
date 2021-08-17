@@ -9,16 +9,11 @@ from typing import List
 import pyrogram
 
 from .js_core import INSTANCE as jscore
-from .http_bridge import INSTANCE as bridge
-from .helpers import HandlersHolder, TimedCache, VersionNumber, get_version, generate_session_id
-from .events.handlers import event_handler
+from .helpers import assert_version, event_handler
 
 from .traits import Scaffolding
 
 class MissingClientException(Exception):
-    pass
-
-class DependancyException(Exception):
     pass
 
 class PyTgCalls(Scaffolding):
@@ -33,24 +28,16 @@ class PyTgCalls(Scaffolding):
         # TODO load these settings from config maybe?
         self.host : str = '127.0.0.1'
         self.port : int = port
-        self._on_event_update: HandlersHolder = HandlersHolder()
         self._flood_wait_cache = flood_wait_cache
         self.log_mode : int = log_mode
-        asyncio.get_event_loop().create_task(self.set_client(client)) # with I had async constructors...
+        asyncio.get_event_loop().create_task(self.set_client(client)) # wish I had async constructors...
 
     async def run(self, before_start_callable: Callable = None):
         if not self.client:
             raise MissingClientException("Pyrogram client not configured")
         
-        node_v = get_version('node')
-        if not node_v:
-            raise DependancyException("Could not find node.js, please install v15+")
-        if node_v < 15:
-            raise DependancyException(f"node.js v15+ required, found version {node_v}")
-
-        pyrogram_version = VersionNumber(pyrogram.__version__)
-        if pyrogram_version < '1.2':
-            raise DependancyException(f"pyrogram v1.2.0+ required, found version {pyrogram_version}")
+        assert_version('node', '15')
+        assert_version('pyrogram', '1.2', pyrogram.__version__)
 
         self.client.on_raw_update()(event_handler(self))
 
