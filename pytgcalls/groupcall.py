@@ -12,15 +12,17 @@ from pyrogram.raw.base import InputPeer, DataJSON
 
 from .js_core import INSTANCE as JSC
 
-from .traits import Scaffolding
+from .helpers import event_handler
 
-class Call(Scaffolding):
+class GroupCall:
     def __init__(self, client:Client, chat_id:int) -> bool:
         self.client = client
         self.chat_id : int = chat_id
         self.initialized : asyncio.Event = asyncio.Event()
         self.request : dict = None
         self.sid : str = str(uuid4())
+        # Register the event handler to process groupcall transport events
+        self.client.on_raw_update()(event_handler(self))
         # Fetch everything in background
         asyncio.get_event_loop().create_task(self._build_cache())
 
